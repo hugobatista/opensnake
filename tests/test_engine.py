@@ -48,7 +48,6 @@ def test_snake_self_collision() -> None:
     s.move()
     s.change_direction(Direction.UP)
     head = s.move()
-    # head lands on the cell that was previously body[2]
     assert s.collides_with_self(head)
 
 
@@ -59,16 +58,32 @@ def test_snake_collides_with() -> None:
 
 
 def test_engine_initial_state() -> None:
-    e = Engine(20, 20)
+    e = Engine(60, 40, letter_count=24, initial_letters=3)
     assert e.state == GameState.PLAYING
     assert e.score == 0
-    assert len(e.letters) == 8
+    assert len(e.letters) == 3
+
+
+def test_engine_starts_with_initial_letters() -> None:
+    e = Engine(60, 40, letter_count=10, initial_letters=5)
+    assert len(e.letters) == 5
+
+
+def test_engine_progressive_spawn() -> None:
+    e = Engine(
+        60, 40, letter_count=24, initial_letters=3, spawn_interval_ms=1000
+    )
+    count_before = len(e.letters)
+    assert count_before == 3
+    e.tick(now_ms=2000)
+    assert len(e.letters) > count_before
+    assert e.active_letter_count() > 0
 
 
 def test_engine_tick_no_collision() -> None:
     e = Engine(60, 40)
     head_before = e.snake.head
-    e.tick()
+    e.tick(now_ms=0)
     assert e.state == GameState.PLAYING
     assert e.snake.head != head_before
 
@@ -77,45 +92,50 @@ def test_engine_wall_collision() -> None:
     e = Engine(60, 40)
     e.snake.body = [(0, 0), (1, 0), (2, 0)]
     e.snake.direction = Direction.LEFT
-    e.tick()
+    e.tick(now_ms=0)
     assert e.state == GameState.DEAD
 
 
-def test_engine_respawn_letters() -> None:
+def test_engine_all_collected() -> None:
     e = Engine(60, 40)
     for letter in e.letters:
         letter.collected = True
-    e.respawn_letters()
-    assert len(e.letters) == 8
-    assert not any(letter.collected for letter in e.letters)
+    assert e.all_collected()
 
 
 def test_engine_letter_collection_increases_score() -> None:
-    e = Engine(60, 40)
+    e = Engine(60, 40, initial_letters=1)
     letter = e.letters[0]
-    # place head to land on first inked cell of the letter
-    # O letter: first inked cell is at (grid_x, grid_y + 1)
     target_x = letter.grid_x
     target_y = letter.grid_y + 1
     e.snake.body = [(target_x - 1, target_y)]
     e.snake.direction = Direction.RIGHT
     e.snake._grow_pending = 0
-    e.tick()
+    e.tick(now_ms=0)
     assert letter.collected
     assert e.score == 100
-
-
-def test_engine_all_collected() -> None:
-    e = Engine(60, 40)
-    assert not e.all_collected()
-    for letter in e.letters:
-        letter.collected = True
-    assert e.all_collected()
 
 
 def test_engine_dead_state_no_tick() -> None:
     e = Engine(60, 40)
     e.state = GameState.DEAD
     head_before = e.snake.head
-    e.tick()
+    e.tick(now_ms=0)
     assert e.snake.head == head_before
+
+
+def test_engine_active_letter_count() -> None:
+    e = Engine(60, 40, initial_letters=3)
+    assert e.active_letter_count() == 3
+    for letter in e.letters:
+        letter.collected = True
+    assert e.active_letter_count() == 0
+
+
+def test_engine_respawn_letters() -> None:
+    e = Engine(60, 40, letter_count=12)
+    for letter in e.letters:
+        letter.collected = True
+    e.respawn_letters()
+    assert len(e.letters) >= 10
+    assert not any(letter.collected for letter in e.letters)

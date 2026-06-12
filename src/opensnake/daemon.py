@@ -18,6 +18,7 @@ class Daemon:
         self._running = False
         self._start_time: float | None = None
         self._server: asyncio.AbstractServer | None = None
+        self._game_proc: subprocess.Popen[bytes] | None = None
 
     def _write_pid(self) -> None:
         PID_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -51,6 +52,10 @@ class Daemon:
             msg = json.loads(data.decode().strip())
             action = msg.get("action")
             if action == "start":
+                if self._running:
+                    writer.write(b'{"status":"ok"}\n')
+                    await writer.drain()
+                    return
                 logger.info("start")
                 self._start_time = time.monotonic()
                 self._running = True
@@ -59,6 +64,8 @@ class Daemon:
             elif action == "stop":
                 logger.info("stop")
                 self._running = False
+                self._start_time = None
+                self._kill_game()
                 writer.write(b'{"status":"ok"}\n')
             elif action == "ping":
                 writer.write(b'{"status":"ok"}\n')
@@ -71,11 +78,24 @@ class Daemon:
             writer.close()
 
     def _launch_game(self) -> None:
-        subprocess.Popen(
+        self._kill_game()
+        self._game_proc = subprocess.Popen(
             [sys.executable, "-m", "opensnake", "once"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+    def _kill_game(self) -> None:
+        if self._game_proc:
+            try:
+                self._game_proc.terminate()
+                self._game_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._game_proc.kill()
+                except Exception:
+                    pass
+            self._game_proc = None
 
     async def _timeout_check(self) -> None:
         while True:
@@ -86,6 +106,7 @@ class Daemon:
                     logger.info("timeout — auto-stopping")
                     self._running = False
                     self._start_time = None
+                    self._kill_game()
 
     async def run(self) -> None:
         SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)

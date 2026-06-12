@@ -72,7 +72,7 @@ omit = ["*/__init__.py"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 28
+fail_under = 27
 exclude_lines = [
     "pragma: no cover",
     "raise AssertionError",

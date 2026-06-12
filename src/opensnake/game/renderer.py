@@ -6,11 +6,9 @@ from typing import Any
 
 import pygame
 
+from opensnake.config import GameConfig, load_config
 from opensnake.game.engine import Direction, Engine, GameState
 from opensnake.logo import INK, Logo
-
-CELL_SIZE = 32
-TICK_MS = 150
 
 
 class Key(StrEnum):
@@ -52,7 +50,7 @@ class _XRect(ctypes.Structure):
 _XSHAPE: dict[str, Any] | None = None
 
 
-def _xshape_setup() -> dict[str, Any] | None:
+def _xshape_setup(opacity: float = 0.9) -> dict[str, Any] | None:
     if platform.system() != "Linux":
         return None
     try:
@@ -91,8 +89,34 @@ def _xshape_setup() -> dict[str, Any] | None:
     ]
     combine.restype = None
 
-    # Make the entire window transparent initially
     combine(display, x_window, 0, 0, 0, None, 0, 0, 0)
+
+    x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x11.XInternAtom.restype = ctypes.c_ulong
+    atom = x11.XInternAtom(display, b"_NET_WM_WINDOW_OPACITY", False)
+    x11.XChangeProperty.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    ]
+    x11.XChangeProperty.restype = None
+    opacity_val = max(0, min(0xFFFFFFFF, int(opacity * 0xFFFFFFFF)))
+    opacity_c = ctypes.c_ulong(opacity_val)
+    x11.XChangeProperty(
+        display,
+        x_window,
+        atom,
+        6,
+        32,
+        0,
+        ctypes.byref(opacity_c),
+        1,
+    )
     x11.XFlush(display)
 
     return {
@@ -119,13 +143,13 @@ def _xshape_apply(xshape: dict[str, Any] | None, rects: _RectList) -> None:
     combine(
         xshape["display"],
         xshape["window"],
-        0,  # ShapeBounding
+        0,
         0,
         0,
         gpu_rects,
         len(rects),
-        0,  # ShapeSet
-        0,  # Unsorted
+        0,
+        0,
     )
     xshape["x11"].XFlush(xshape["display"])
 
@@ -156,7 +180,6 @@ def _macos_setup() -> bool:
         sel_clear_color = objc.sel_registerName(b"clearColor")
         ns_color = objc.objc_getClass(b"NSColor")
 
-        # Make window non-opaque with clear background
         opaque_variadic = objc.objc_msgSend
         opaque_variadic.argtypes = [
             ctypes.c_void_p,
@@ -185,7 +208,9 @@ def _macos_setup() -> bool:
 
 
 class Renderer:
-    def __init__(self) -> None:
+    def __init__(self, cfg: GameConfig | None = None) -> None:
+        self.cfg = cfg or load_config()
+
         os.environ["SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR"] = "0"
 
         pygame.init()
@@ -201,14 +226,22 @@ class Renderer:
         pygame.event.set_allowed([pygame.KEYDOWN, pygame.QUIT])
         self.clock = pygame.time.Clock()
 
-        self._xshape = _xshape_setup()
+        self._xshape = _xshape_setup(self.cfg.opacity)
         _macos_setup()
 
         self._draw_surf = pygame.Surface((self.w, self.h))
 
-        g_w = self.w // CELL_SIZE
-        g_h = self.h // CELL_SIZE
-        self.engine = Engine(g_w, g_h)
+        cs = self.cfg.cell_size
+        g_w = self.w // cs
+        g_h = self.h // cs
+        self._cs = cs
+        self.engine = Engine(
+            g_w,
+            g_h,
+            letter_count=self.cfg.letter_count,
+            initial_letters=self.cfg.initial_letters,
+            spawn_interval_ms=self.cfg.spawn_interval_ms,
+        )
         self.font = self._make_font(28)
         self.game_over_font = self._make_font(56)
 
@@ -219,40 +252,43 @@ class Renderer:
             return pygame.font.Font(None, size)
 
     def _ink_rects(self, gx: int, gy: int, pattern: list[str]) -> _RectList:
-        rects: list[tuple[int, int, int, int]] = []
-        bx = gx * CELL_SIZE
-        by = gy * CELL_SIZE
+        rects: _RectList = []
+        bx = gx * self._cs
+        by = gy * self._cs
         for ly, line in enumerate(pattern):
             for lx, ch in enumerate(line):
                 if ch in INK:
-                    rects.append(
-                        (
-                            bx + lx * CELL_SIZE,
-                            by + ly * CELL_SIZE,
-                            CELL_SIZE,
-                            CELL_SIZE,
-                        )
-                    )
+                    rx = bx + lx * self._cs
+                    ry = by + ly * self._cs
+                    rects.append((rx, ry, self._cs, self._cs))
         return rects
+
+    def _letter_color(self, name: str) -> tuple[int, int]:
+        gm = self.cfg.gray_map
+        if name in gm:
+            return tuple(gm[name])  # type: ignore[return-value]
+        return (180, 220)
 
     def _draw_letter(self, letter_name: str, gx: int, gy: int) -> None:
         pattern = Logo.LETTERS[letter_name]
-        bx = gx * CELL_SIZE
-        by = gy * CELL_SIZE
+        bx = gx * self._cs
+        by = gy * self._cs
+        fill, border = self._letter_color(letter_name)
         for ly, line in enumerate(pattern):
             for lx, ch in enumerate(line):
                 if ch in INK:
-                    rx = bx + lx * CELL_SIZE
-                    ry = by + ly * CELL_SIZE
-                    rect = (rx, ry, CELL_SIZE, CELL_SIZE)
-                    pygame.draw.rect(self._draw_surf, (180, 220, 255), rect)
-                    pygame.draw.rect(self._draw_surf, (100, 160, 220), rect, 1)
+                    rx = bx + lx * self._cs
+                    ry = by + ly * self._cs
+                    rect = (rx, ry, self._cs, self._cs)
+                    pygame.draw.rect(self._draw_surf, (fill, fill, fill), rect)
+                    bdr = (border, border, border)
+                    pygame.draw.rect(self._draw_surf, bdr, rect, 1)
 
     def _draw_snake(self) -> _RectList:
-        rects: list[tuple[int, int, int, int]] = []
+        rects: _RectList = []
         cells = self.engine.snake.body
         for i, (gx, gy) in enumerate(cells):
-            rect = (gx * CELL_SIZE, gy * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+            rect = (gx * self._cs, gy * self._cs, self._cs, self._cs)
             rects.append(rect)
             if i == 0:
                 color = (0, 255, 102)
@@ -311,6 +347,7 @@ class Renderer:
         running = True
         game_over_start: float | None = None
         while running:
+            now = pygame.time.get_ticks()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
@@ -327,7 +364,7 @@ class Renderer:
                         self.engine.snake.change_direction(_DIR_MAP[event.key])
 
             if self.engine.state == GameState.PLAYING:
-                self.engine.tick()
+                self.engine.tick(now)
 
             self._draw_surf.fill((0, 0, 0))
             shape_rects: _RectList = []
@@ -356,7 +393,7 @@ class Renderer:
 
             self.screen.blit(self._draw_surf, (0, 0))
             pygame.display.flip()
-            self.clock.tick_busy_loop(1000 // TICK_MS)
+            self.clock.tick_busy_loop(1000 // self.cfg.tick_ms)
 
         pygame.display.quit()
         pygame.quit()

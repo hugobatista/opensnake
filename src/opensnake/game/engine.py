@@ -95,17 +95,92 @@ class Snake:
             self.direction = new_dir
 
 
+_PLACEMENTS = [
+    "O",
+    "P",
+    "E",
+    "N",
+    "C",
+    "O",
+    "D",
+    "E",
+    "O",
+    "P",
+    "E",
+    "N",
+    "C",
+    "O",
+    "D",
+    "E",
+    "O",
+    "P",
+    "E",
+    "N",
+    "C",
+    "O",
+    "D",
+    "E",
+]
+
+
 class Engine:
-    def __init__(self, grid_w: int, grid_h: int) -> None:
+    def __init__(
+        self,
+        grid_w: int,
+        grid_h: int,
+        *,
+        letter_count: int = 24,
+        initial_letters: int = 3,
+        spawn_interval_ms: int = 3000,
+    ) -> None:
         self.grid_w = grid_w
         self.grid_h = grid_h
         self.snake = Snake.starting_at(grid_w // 2, grid_h // 2)
         self.letters: list[Letter] = []
         self.score = 0
         self.state = GameState.PLAYING
-        self.respawn_letters()
+        self.letter_count = letter_count
+        self.spawn_interval_ms = spawn_interval_ms
+        self._last_spawn_ms = 0
+        self._placement_queue = list(_PLACEMENTS)
+        self._spawn_initial(initial_letters)
 
-    def tick(self) -> None:
+    def _spawn_initial(self, count: int) -> None:
+        for _ in range(count):
+            if not self._placement_queue:
+                break
+            self._spawn_one()
+
+    def _spawn_one(self) -> bool:
+        if not self._placement_queue:
+            return False
+        name = self._placement_queue.pop(0)
+        occupied = set(self.snake.body)
+        for letter in self.letters:
+            if not letter.collected:
+                for cx in range(letter.grid_x, letter.grid_x + CHAR_W):
+                    for cy in range(letter.grid_y, letter.grid_y + CHAR_H):
+                        if letter.occupies(cx, cy):
+                            occupied.add((cx, cy))
+        for _ in range(100):
+            gx = random.randint(0, max(0, self.grid_w - CHAR_W))
+            gy = random.randint(0, max(0, self.grid_h - CHAR_H))
+            letter = Letter(name, gx, gy)
+            cells = {
+                (cx, cy)
+                for cx in range(gx, gx + CHAR_W)
+                for cy in range(gy, gy + CHAR_H)
+                if letter.occupies(cx, cy)
+            }
+            if not cells.intersection(occupied):
+                self.letters.append(letter)
+                return True
+        return False
+
+    def active_letter_count(self) -> int:
+        return sum(1 for letter in self.letters if not letter.collected)
+
+    def tick(self, now_ms: int = 0) -> None:
         if self.state != GameState.PLAYING:
             return
         new_head = self.snake.move()
@@ -121,28 +196,20 @@ class Engine:
                 self.score += 100
                 self.snake.grow(3)
                 break
-        if self.all_collected():
+        if self.active_letter_count() == 0:
             self.respawn_letters()
+        if (
+            self._placement_queue
+            and self.active_letter_count() < self.letter_count
+            and now_ms - self._last_spawn_ms >= self.spawn_interval_ms
+        ):
+            self._spawn_one()
+            self._last_spawn_ms = now_ms
 
     def all_collected(self) -> bool:
         return all(letter.collected for letter in self.letters)
 
     def respawn_letters(self) -> None:
-        placements = ["O", "P", "E", "N", "C", "O", "D", "E"]
+        self._placement_queue = list(_PLACEMENTS)
         self.letters.clear()
-        occupied = set(self.snake.body)
-        for name in placements:
-            for _ in range(100):
-                gx = random.randint(0, max(0, self.grid_w - CHAR_W))
-                gy = random.randint(0, max(0, self.grid_h - CHAR_H))
-                letter = Letter(name, gx, gy)
-                cells = {
-                    (cx, cy)
-                    for cx in range(gx, gx + CHAR_W)
-                    for cy in range(gy, gy + CHAR_H)
-                    if letter.occupies(cx, cy)
-                }
-                if not cells.intersection(occupied):
-                    self.letters.append(letter)
-                    occupied.update(cells)
-                    break
+        self._spawn_initial(self.letter_count)
