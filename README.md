@@ -1,5 +1,11 @@
 # opensnake 🐍
 
+[![GitHub Tag](https://img.shields.io/github/v/tag/hugobatista/opensnake?logo=github&label=latest)](https://go.hugobatista.com/gh/hugobatista/opensnake/releases)
+[![Lint](https://img.shields.io/github/actions/workflow/status/hugobatista/opensnake/lint.yml?label=Lint)](https://go.hugobatista.com/gh/hugobatista/opensnake/actions/workflows/lint.yml)
+[![Test](https://img.shields.io/github/actions/workflow/status/hugobatista/opensnake/test.yml?label=Test)](https://go.hugobatista.com/gh/hugobatista/opensnake/actions/workflows/test.yml)
+[![PyPI - Version](https://img.shields.io/pypi/v/opensnake.svg)](https://pypi.org/project/opensnake)
+[![Renovate](https://img.shields.io/badge/renovate-enabled-brightgreen?logo=renovatebot)](https://docs.renovatebot.com)
+
 Desktop snake game that plays on a transparent overlay while opencode is
 processing. The snake eats OPENCODE letters rendered in ASCII block art
 (matching the opencode TUI logo), scoring points for each letter collected.
@@ -21,17 +27,23 @@ The plugin auto-starts the daemon on load — no manual `opensnake daemon` neede
 ## Installation
 
 ```bash
-# From source (recommended)
+# Via pip
+pip install opensnake
+
+# Or via uv tool
+uv tool install opensnake
+
+# Or from source
 git clone https://github.com/hugobatista/opensnake
 cd opensnake
 uv sync
-
-# Install the opencode plugin
-opensnake install
 ```
 
-Restart opencode to load the plugin. That's it — the daemon starts
-automatically.
+After installing, register the opencode plugin and restart opencode:
+
+```bash
+opensnake install
+```
 
 ## Usage
 
@@ -90,30 +102,3 @@ Optional file at `~/.config/opensnake/config.json`:
 | `spawn_interval_ms` | 3000 | How often a new letter appears |
 | `gray_map` | (per letter) | Fill/border gray values per letter |
 
-## Development
-
-```bash
-uv sync
-hatch run lint      # auto-fix lint issues
-hatch run test      # run pytest with coverage
-hatch run check     # full suite: lint + format + test + typecheck
-```
-
-## Project structure
-
-```
-src/opensnake/
-├── cli.py          # Typer CLI (daemon, once, status, install, uninstall, config)
-├── config.py       # GameConfig dataclass, JSON config load/save
-├── daemon.py       # Unix socket listener, game lifecycle, PID singleton
-├── logo.py         # OPENCODE ASCII art letter definitions
-├── __main__.py     # Entry point
-└── game/
-    ├── engine.py   # Snake grid, progressive letter spawning, collision, scoring
-    └── renderer.py # Pygame: XShape transparency, logo rendering, snake, HUD
-hooks/
-└── opensnake.ts    # opencode Plugin (auto-starts daemon, sends start/stop)
-tests/
-├── test_config.py
-└── test_engine.py
-```
