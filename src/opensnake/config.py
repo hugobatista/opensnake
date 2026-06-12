@@ -16,7 +16,6 @@ def _xdg_runtime_dir() -> Path:
 
 
 SOCKET_PATH: Path = _xdg_runtime_dir() / "opensnake.sock"
-PID_PATH: Path = _xdg_runtime_dir() / "opensnake.pid"
 PLUGIN_DIR: Path = Path.home() / ".config" / "opencode" / "plugins"
 PLUGIN_FILE: Path = PLUGIN_DIR / "opensnake.ts"
 

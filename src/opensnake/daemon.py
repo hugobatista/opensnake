@@ -1,16 +1,31 @@
 import asyncio
 import json
 import logging
-import os
 import signal
+import socket
 import subprocess
 import sys
 import time
 
-from opensnake.config import PID_PATH, SOCKET_PATH, TIMEOUT_MS
+from opensnake.config import SOCKET_PATH, TIMEOUT_MS
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("opensnake")
+
+
+def _socket_alive() -> bool:
+    if not SOCKET_PATH.exists():
+        return False
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(1)
+        s.connect(str(SOCKET_PATH))
+        s.sendall(b'{"action":"ping"}\n')
+        data = s.recv(1024)
+        s.close()
+        return bool(data)
+    except Exception:
+        return False
 
 
 class Daemon:
@@ -20,27 +35,9 @@ class Daemon:
         self._server: asyncio.AbstractServer | None = None
         self._game_proc: subprocess.Popen[bytes] | None = None
 
-    def _write_pid(self) -> None:
-        PID_PATH.parent.mkdir(parents=True, exist_ok=True)
-        PID_PATH.write_text(str(os.getpid()))
-
-    def _remove_pid(self) -> None:
-        try:
-            PID_PATH.unlink(missing_ok=True)
-        except Exception:
-            pass
-
     @staticmethod
     def is_running() -> bool:
-        if not PID_PATH.exists():
-            return False
-        try:
-            pid = int(PID_PATH.read_text().strip())
-            os.kill(pid, 0)
-            return True
-        except (ValueError, OSError, ProcessLookupError):
-            PID_PATH.unlink(missing_ok=True)
-            return False
+        return _socket_alive()
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -110,14 +107,17 @@ class Daemon:
 
     async def run(self) -> None:
         SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
-        if SOCKET_PATH.exists():
-            SOCKET_PATH.unlink()
-
-        self._write_pid()
-
-        self._server = await asyncio.start_unix_server(
-            self._handle, path=str(SOCKET_PATH)
-        )
+        try:
+            self._server = await asyncio.start_unix_server(
+                self._handle, path=str(SOCKET_PATH)
+            )
+        except OSError:
+            if _socket_alive():
+                raise
+            SOCKET_PATH.unlink(missing_ok=True)
+            self._server = await asyncio.start_unix_server(
+                self._handle, path=str(SOCKET_PATH)
+            )
 
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -131,15 +131,20 @@ class Daemon:
             )
 
     def _shutdown(self) -> None:
-        self._remove_pid()
+        self._kill_game()
         if self._server:
             self._server.close()
+            try:
+                SOCKET_PATH.unlink(missing_ok=True)
+            except Exception:
+                pass
         sys.exit(0)
 
 
 def run_daemon() -> None:
-    if Daemon.is_running():
+    if _socket_alive():
         logger.info("daemon already running")
         return
+    SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
     daemon = Daemon()
     asyncio.run(daemon.run())

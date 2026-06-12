@@ -226,7 +226,7 @@ class Renderer:
         pygame.event.set_allowed([pygame.KEYDOWN, pygame.QUIT])
         self.clock = pygame.time.Clock()
 
-        self._xshape = _xshape_setup(self.cfg.opacity)
+        self._xshape = _xshape_setup(1.0)
         _macos_setup()
 
         self._draw_surf = pygame.Surface((self.w, self.h))
@@ -388,6 +388,14 @@ class Renderer:
 
             hud_rects = self._draw_hud()
             shape_rects.extend(hud_rects)
+
+            if (
+                self.engine.state == GameState.PLAYING
+                and self.cfg.opacity < 1.0
+            ):
+                overlay = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, int(255 * (1.0 - self.cfg.opacity))))
+                self._draw_surf.blit(overlay, (0, 0))
 
             _xshape_apply(self._xshape, shape_rects)
 

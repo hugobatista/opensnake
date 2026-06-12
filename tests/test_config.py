@@ -2,7 +2,6 @@ from pathlib import Path
 
 from opensnake.config import (
     GAMEOVER_DISPLAY_MS,
-    PID_PATH,
     PLUGIN_DIR,
     PLUGIN_FILE,
     SOCKET_PATH,
@@ -14,11 +13,6 @@ from opensnake.config import (
 def test_socket_path_is_absolute() -> None:
     assert isinstance(SOCKET_PATH, Path)
     assert str(SOCKET_PATH).endswith("opensnake.sock")
-
-
-def test_pid_path_is_absolute() -> None:
-    assert isinstance(PID_PATH, Path)
-    assert str(PID_PATH).endswith("opensnake.pid")
 
 
 def test_plugin_paths() -> None:
