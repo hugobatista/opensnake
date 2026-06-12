@@ -1,0 +1,38 @@
+from typing import ClassVar
+
+CHAR_W = 4
+CHAR_H = 4
+
+INK = frozenset({"█", "▀", "▄"})
+
+
+class Logo:
+    LETTERS: ClassVar[dict[str, list[str]]] = {
+        "O": ["    ", "█▀▀█", "█__█", "▀▀▀▀"],
+        "P": ["    ", "█▀▀█", "█__█", "█▀▀▀"],
+        "E": ["    ", "█▀▀█", "█^^^", "▀▀▀▀"],
+        "N": ["    ", "█▀▀▄", "█__█", "▀~~▀"],
+        "C": [" ▄  ", "█▀▀▀", "█___", "▀▀▀▀"],
+        "D": ["    ", "█▀▀█", "█__█", "▀▀▀▀"],
+    }
+
+    FULL_LOGO: ClassVar[list[str]] = [
+        "                    ▄     ",
+        "█▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█",
+        "█__█ █__█ █^^^ █__█ █___ █__█ █__█ █^^^",
+        "▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀~~▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀",
+    ]
+
+    @classmethod
+    def letter_at(cls, name: str, cell_w: int, cell_h: int) -> list[list[bool]]:
+        pattern = cls.LETTERS[name]
+        bitmap: list[list[bool]] = []
+        for row in pattern:
+            for _ in range(cell_h):
+                pixel_row: list[bool] = []
+                for ch in row:
+                    inked = ch in INK
+                    for _ in range(cell_w):
+                        pixel_row.append(inked)
+                bitmap.append(pixel_row)
+        return bitmap
