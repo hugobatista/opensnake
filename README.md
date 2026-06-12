@@ -1,77 +1,119 @@
 # opensnake 🐍
 
-Desktop snake game that plays on a transparent overlay while opencode is processing. The snake eats OPENCODE letters rendered in ASCII block art, scoring points for each letter collected.
+Desktop snake game that plays on a transparent overlay while opencode is
+processing. The snake eats OPENCODE letters rendered in ASCII block art
+(matching the opencode TUI logo), scoring points for each letter collected.
 
 ## How it works
 
-When opencode starts "thinking," the game opens a fullscreen borderless window with a screenshot of your desktop as the background — creating the illusion of a transparent overlay. The snake moves on a grid, eating OPENCODE letters that appear at random positions. Each letter eaten scores 100 points and the snake grows by 3 cells.
+When opencode starts processing (`session.status` → `busy`), the plugin sends
+"start" via a Unix socket. The daemon opens a fullscreen borderless Pygame
+window. The window uses XShape (Linux) or NSWindow transparency (macOS) so
+only game elements are visible — the desktop shows through everywhere else.
 
-When opencode goes idle, the scoreboard is shown for 5 seconds and the window closes. The ESC key exits at any time.
+The snake moves on a grid. OPENCODE letters appear progressively (3 initially,
+then one every 3 seconds up to 100). Each letter eaten scores 100 points and
+the snake grows by 3 cells. ESC exits immediately. The 60-second daemon
+timeout prevents orphan sessions.
 
-The OPENCODE logo is rendered using the same Unicode block characters as the opencode TUI (`█` `▀` `▄` `_` `^` `~`).
+The plugin auto-starts the daemon on load — no manual `opensnake daemon` needed.
 
 ## Installation
 
 ```bash
-# From source
-pip install opensnake
-
-# Or in development mode
-git clone https://github.com/yourname/opensnake
+# From source (recommended)
+git clone https://github.com/hugobatista/opensnake
 cd opensnake
 uv sync
+
+# Install the opencode plugin
+opensnake install
 ```
+
+Restart opencode to load the plugin. That's it — the daemon starts
+automatically.
 
 ## Usage
 
 ```bash
-# Launch game once (for testing)
+# Launch game once (for testing, no daemon needed)
 opensnake once
 
-# Start background socket daemon (for opencode integration)
+# Manual daemon control (usually auto-started by plugin)
 opensnake daemon
-
-# Check if daemon is running
 opensnake status
 
-# Install the opencode hook
+# Plugin management
 opensnake install
-
-# Remove the opencode hook
 opensnake uninstall
+
+# View or regenerate config
+opensnake config
 ```
 
-### opencode integration
+### CLI flags
 
 ```bash
-opensnake install   # writes hooks/opensnake.ts to ~/.config/opencode/hooks/
-opensnake daemon    # starts the Unix socket listener
+opensnake once --opacity 0.85 --tick-ms 120 --letter-count 50
 ```
 
-The hook sends `start`/`stop` signals to the daemon's Unix socket at `$XDG_RUNTIME_DIR/opensnake.sock` when opencode starts/stops thinking.
+## Configuration
+
+Optional file at `~/.config/opensnake/config.json`:
+
+```json
+{
+  "opacity": 0.8,
+  "tick_ms": 80,
+  "cell_size": 32,
+  "letter_count": 100,
+  "initial_letters": 10,
+  "spawn_interval_ms": 3000,
+  "gray_map": {
+    "O": [180, 220],
+    "P": [160, 200],
+    "E": [200, 240],
+    "N": [140, 180],
+    "C": [210, 250],
+    "D": [170, 210]
+  }
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `opacity` | 0.8 | Window opacity (0.0–1.0) |
+| `tick_ms` | 80 | Snake speed (lower = faster) |
+| `cell_size` | 32 | Grid cell size in pixels |
+| `letter_count` | 100 | Maximum letters on screen |
+| `initial_letters` | 10 | Letters at game start |
+| `spawn_interval_ms` | 3000 | How often a new letter appears |
+| `gray_map` | (per letter) | Fill/border gray values per letter |
 
 ## Development
 
 ```bash
-uv sync            # create venv and install deps
-hatch run lint     # auto-fix lint issues
-hatch run test     # run pytest with coverage
-hatch run check    # full suite: lint + format + test + typecheck
+uv sync
+hatch run lint      # auto-fix lint issues
+hatch run test      # run pytest with coverage
+hatch run check     # full suite: lint + format + test + typecheck
 ```
 
-### Project structure
+## Project structure
 
 ```
 src/opensnake/
-├── cli.py          # Typer CLI (daemon, once, status, install, uninstall)
-├── config.py       # XDG paths, settings
-├── daemon.py       # Unix socket listener, game lifecycle
+├── cli.py          # Typer CLI (daemon, once, status, install, uninstall, config)
+├── config.py       # GameConfig dataclass, JSON config load/save
+├── daemon.py       # Unix socket listener, game lifecycle, PID singleton
 ├── logo.py         # OPENCODE ASCII art letter definitions
 ├── __main__.py     # Entry point
 └── game/
-    ├── engine.py   # Snake grid, letter placement, collision, scoring
-    └── renderer.py # Pygame: screenshot background, letters, snake, HUD
+    ├── engine.py   # Snake grid, progressive letter spawning, collision, scoring
+    └── renderer.py # Pygame: XShape transparency, logo rendering, snake, HUD
+hooks/
+└── opensnake.ts    # opencode Plugin (auto-starts daemon, sends start/stop)
 tests/
-└── hooks/
-    └── opensnake.ts  # opencode hook template
+├── test_config.py
+└── test_engine.py
 ```

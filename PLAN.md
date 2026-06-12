@@ -1,45 +1,53 @@
 # opensnake 🐍
 
-Desktop snake game that shows a transparent overlay while opencode is processing. The snake eats OPENCODE letters rendered in ASCII block art, scoring points for each letter collected.
+Desktop snake game that plays on a transparent overlay while opencode is
+processing. The snake eats OPENCODE letters rendered in ASCII block art
+(matching the opencode TUI logo), scoring points for each letter collected.
 
 ## Core mechanic
 
 ```
-opencode starts "thinking"
+opencode starts processing (session.status → busy)
   → plugin sends "start" via Unix socket
-  → opensnake daemon opens transparent Pygame window (NOFRAME, always-on-top, SRCALPHA)
-  → Snake moves on a grid. OPENCODE letters are placed as collectible targets
-  → Snake eats a letter → letter disappears → score += 100
-  → Desktop is visible through transparent areas
+  → opensnake daemon opens transparent Pygame window (NOFRAME, always-on-top)
+  → Snake moves on a grid. OPENCODE letters appear progressively (3 initial,
+    then 1 every 3s up to 100)
+  → Snake eats a letter → letter disappears → score += 100 → snake grows 3
+  → Desktop visible through XShape-transparent areas
 
-opencode goes idle
+opencode goes idle (session.idle or session.status → idle)
   → plugin sends "stop" via Unix socket
-  → Scoreboard overlay shown for 5s → window closes
+  → daemon kills game subprocess
 
 ESC key at any time → game over → score shown → window closes
+60s daemon timeout → auto-closes orphan sessions
 ```
-
-Score = points from letters eaten. Max score = 800 (8 letters × 100).
 
 ## Architecture
 
 ```
 opencode plugin ── Unix socket ──→ opensnake daemon ──→ Pygame window
-  (TypeScript)     $XDG_RUNTIME_DIR/   (Python/asyncio)   (NOFRAME, ontop, SRCALPHA)
+  (TypeScript)     $XDG_RUNTIME_DIR/   (Python/asyncio)   (NOFRAME, XShape)
 ```
 
-No screenshot capture. No external screenshot tools. No D-Bus.
+No screenshot capture. No external tools. No D-Bus.
+
+### Plugin auto-starts daemon
+
+The plugin (loaded by opencode on startup) reads `daemon_cmd` from the config
+file and spawns the daemon via `Bun.spawn`. The daemon's own PID check
+prevents duplicates. Users never need to run `opensnake daemon` manually.
 
 ### Components
 
 | Component | Language | Role |
 |---|---|---|
-| `opencode plugin` | TypeScript (~40 lines) | Hooks `session.status`/`session.idle`, sends `start`/`stop` to socket |
-| `daemon.py` | Python/asyncio | Unix socket listener, manages game lifecycle |
-| `game/engine.py` | Python | Snake grid, letter placement, collision, scoring |
-| `game/renderer.py` | Python | Pygame: transparent surface, draws logo letters, snake, HUD |
-| `cli.py` | Python (Typer) | Commands: daemon, once, status |
-| `config.py` | Python | XDG paths, settings |
+| `opencode plugin` | TypeScript (~50 lines) | Hooks `session.status`, sends `start`/`stop`; auto-starts daemon |
+| `daemon.py` | Python/asyncio | Unix socket listener, manages game lifecycle and game subprocess |
+| `game/engine.py` | Python | Snake grid, progressive letter spawning, collision, scoring |
+| `game/renderer.py` | Python | Pygame: XShape transparency, logo letters, snake, HUD |
+| `cli.py` | Python (Typer) | Commands: daemon, once, status, install, uninstall, config |
+| `config.py` | Python | GameConfig dataclass, JSON config load/save |
 
 ### IPC protocol
 
@@ -49,52 +57,52 @@ Unix socket at `$XDG_RUNTIME_DIR/opensnake.sock`
 → {"action": "start"}   → daemon opens game window
 ← {"status": "ok"}
 
-→ {"action": "stop"}    → daemon closes window, logs score
+→ {"action": "stop"}    → daemon kills game subprocess
 ← {"status": "ok"}
 
 → {"action": "ping"}    → health check
 ← {"status": "ok"}
 ```
 
-### opencode plugin hook
-
-The plugin intercepts `session.status` and `session.idle` events. When the agent starts thinking (status transitions to `thinking`), it sends `start`. When the agent goes idle or completes, it sends `stop`. Plugin file lives at `~/.config/opencode/hooks/opensnake.ts` (opencode-plugin hook, not a full plugin).
-
 ## CLI
 
 ```
-opensnake daemon    → starts background socket listener
-opensnake once      → launches game immediately (for testing, no daemon needed)
-opensnake status    → check if daemon is running
-opensnake install   → installs the opencode hook file
-opensnake uninstall → removes the hook file
+opensnake daemon      → starts background socket listener
+opensnake once        → launches game immediately (for testing, no daemon)
+opensnake once --opacity 0.8 --tick-ms 80 --letter-count 100
+opensnake status      → check if daemon is running
+opensnake install     → writes plugin to ~/.config/opencode/plugins/ + writes config
+opensnake uninstall   → removes plugin file
+opensnake config      → prints or generates default config at ~/.config/opensnake/config.json
 ```
 
-## Project structure
+## Game engine design
+
+| Concept | Detail |
+|---|---|
+| **Window** | Fullscreen NOFRAME, always-on-top |
+| **Transparency** | XShape (Linux X11): only game element rectangles are visible; NSWindow `setOpaque:NO` (macOS). Desktop shows through everywhere else. Window opacity via `_NET_WM_WINDOW_OPACITY` |
+| **Grid** | Window divided into `CELL`-sized squares (default 32×32 px, configurable) |
+| **Snake** | Classic grid-based snake. Head moves 1 cell per tick. |
+| **Letters** | Each OPENCODE letter occupies a 4×4 cell bounding box. Rendered as ASCII block art with per-letter gray values (configurable in `gray_map`). |
+| **Eating** | Snake head overlaps a letter's inked cell → letter removed → `score += 100` → snake grows by 3 cells |
+| **Collision** | Wall or self → game over |
+| **Controls** | Arrow keys to steer. ESC to exit immediately. |
+| **Progressive spawn** | `initial_letters` (default 10) at start. Remaining letters placed one at a time every `spawn_interval_ms` (default 3s) up to `letter_count` (default 100). |
+| **End** | "stop" received → daemon kills game. ESC → game over overlay → close. |
+| **Timeout** | No "start" after 60s → daemon auto-kills game (safety for orphan sessions) |
+
+### Renderer per-frame logic
 
 ```
-~/code/projects/opensnake/
-├── pyproject.toml
-├── README.md
-├── PLAN.md
-├── src/
-│   └── opensnake/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── cli.py
-│       ├── config.py
-│       ├── daemon.py
-│       ├── logo.py         # OPENCODE ASCII art (matching opencode's logo.ts)
-│       └── game/
-│           ├── __init__.py
-│           ├── engine.py
-│           └── renderer.py
-├── tests/
-│   ├── __init__.py
-│   ├── test_engine.py
-│   └── test_config.py
-└── hooks/
-    └── opensnake.ts        # opencode hook (shipped with package)
+1. Fill drawing surface with black
+2. Draw remaining OPENCODE letters (grayscale blocks from gray_map)
+3. Draw snake (head = #00ff66, body = gradient green)
+4. Draw HUD: "SCORE: N", "LETTERS: N"
+5. If game over: draw semi-transparent overlay + scoreboard
+6. Compute XShape rectangles for all visible elements
+7. Apply XShape (only visible elements are shown; desktop visible elsewhere)
+8. Flip display
 ```
 
 ## OPENCODE logo
@@ -102,76 +110,37 @@ opensnake uninstall → removes the hook file
 Rendered using the same block characters as opencode's own TUI (`packages/tui/src/logo.ts`):
 
 ```
-                    ▄     
+                    ▄
 █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
 █__█ █__█ █^^^ █__█ █___ █__█ █__█ █^^^
 ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀~~▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
 ```
 
-Characters used: `█` (U+2588), `▀` (U+2580), `▄` (U+2584), `_`, `^`, `~`, ` `, `,`.
+Characters used: `█` (U+2588), `▀` (U+2580), `▄` (U+2584), `_`, `^`, `~`, ` `.
 
-Each individual letter (O, P, E, N, C, O, D, E) is a separate collectible item. Letters are placed at fixed positions on the grid, or scattered randomly each game. A letter is collected when the snake head occupies any cell of that letter's bounding box.
+Each letter (O, P, E, N, C, D) is a separate collectible. Letters reuse across
+the OPENCODE sequence (O and E appear twice).
 
-After all 8 letters are eaten, a new set of letters respawns at new positions.
+## Configuration
 
-## Game engine design
+Optional JSON file at `~/.config/opensnake/config.json`. All fields have defaults.
 
-| Concept | Detail |
-|---|---|
-| **Window** | Fullscreen transparent overlay with `pygame.SRCALPHA`, `NOFRAME`, always-on-top |
-| **Background** | Fully transparent — desktop visible through the window |
-| **Grid** | Window divided into `CELL`-sized squares (default 32×32 px) |
-| **Snake** | Classic grid-based snake. Head moves 1 cell per tick. |
-| **Letters** | Each OPENCODE letter occupies a bounding box (e.g., 4×4 cells per letter at a given scale). Letters are opaque blocks drawn on the transparent surface. |
-| **Eating** | Snake head overlaps a letter's bounding box → letter removed → `score += 100` → snake grows by 3 cells |
-| **Collision** | Wall or self → game over |
-| **Controls** | Arrow keys to steer. ESC to exit immediately. |
-| **End** | "stop" received → show scoreboard overlay for 5s → close. ESC → same. |
-| **Timeout** | No "stop" after 60s → auto-close (safety for orphan sessions) |
-
-### Renderer per-frame logic
-
-```
-1. Fill surface with transparent color (0,0,0,0)
-2. Draw remaining OPENCODE letters (opaque white/colored blocks)
-3. Draw snake (head = #00ff66, body = gradient green)
-4. Draw HUD: "SCORE: N", "A-Z: OPENCODE letters remaining"
-5. Flip display
+```json
+{
+  "opacity": 0.8,
+  "tick_ms": 80,
+  "cell_size": 32,
+  "letter_count": 100,
+  "initial_letters": 10,
+  "spawn_interval_ms": 3000,
+  "gray_map": { "O": [180, 220], "P": [160, 200], "E": [200, 240],
+                "N": [140, 180], "C": [210, 250], "D": [170, 210] },
+  "daemon_cmd": "opensnake"
+}
 ```
 
-## Letter rendering
-
-Each letter is rendered as a bitmap using the same block-character pattern as the opencode logo. Each character in the ASCII art maps to a small block of pixels on screen (e.g., each char cell = 8×8 px). The overall logo at 4 lines × ~35 chars per line fits in a ~280×32 px area at 8px/char. We scale this up with a `CHAR_SIZE` constant.
-
-Letters can be:
-- **Fixed layout**: placed in predictable positions (e.g., scattered across the play field)
-- **Random layout**: each game randomizes positions (avoiding overlap)
-
-## Transparent overlay implementation
-
-```python
-import pygame
-
-pygame.display.init()
-# Set window to transparent
-pygame.display.set_mode((width, height), pygame.NOFRAME)
-hwnd = pygame.display.get_wm_info()["window"]
-# Platform-specific transparency:
-# Linux (X11): _NET_WM_WINDOW_OPACITY or compositor transparency
-# macOS: NSWindow setOpaque:NO / setAlphaValue:
-# Fallback: colorkey transparency on the surface
-```
-
-If native window transparency proves unreliable across platforms, use colorkey transparency:
-- Set the window background to a specific colorkey (e.g., `#000001`)
-- Draw everything else normally
-- The colorkey makes unused areas completely transparent
-
-## Scoreboard
-
-- **During game**: top-right HUD showing current score (e.g., "SCORE: 300")
-- **Game over**: centered overlay with final score, total letters eaten, "GAME OVER — Press ESC to close"
-- **Session end**: same scoreboard auto-closes after 5s
+`daemon_cmd` is set automatically by `opensnake install` to the resolved Python
+path (e.g. `/path/to/.venv/bin/python -m opensnake`).
 
 ## Dependencies
 
@@ -194,34 +163,21 @@ dependencies = [
 
 | Platform | Method |
 |---|---|
-| **Linux (X11)** | Set `_NET_WM_WINDOW_OPACITY` atom via `xprop` or set window colorkey via Pygame |
-| **Linux (Wayland)** | Layer shell protocol (zwlr_layer_surface_v1) or colorkey fallback; `SDL_VIDEO_DRIVER=wayland` |
-| **macOS** | Pygame window with colorkey transparency (most reliable cross-platform approach) |
-| **Fallback** | Colorkey-based transparency works on all platforms via Pygame's `set_colorkey` |
+| **Linux (X11)** | XShape `CombineRectangles` for per-pixel visibility + `_NET_WM_WINDOW_OPACITY` for window translucency |
+| **Linux (Wayland)** | Fallback: XWayland (XShape via XWayland) |
+| **macOS** | NSWindow `setOpaque:NO` + clear background |
 
 ## Risks and mitigations
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Transparent overlay fails on some compositors | Medium | Colorkey fallback; document known-working setups |
-| Multiple opencode sessions send conflicting signals | Low | Daemon singleton via PID file; idempotent start/stop |
-| Orphan daemon on crash | Low | Auto-close after 60s no input; 5min idle exit |
-| Headless/no display | Low | Detect `$DISPLAY`/`$WAYLAND_DISPLAY`, exit gracefully |
-| Wayland layer-shell not available | Low | Fall back to colorkey transparency |
-
-## Implementation phases
-
-| Phase | What | Verification |
-|---|---|---|
-| **1** | Scaffold: pyproject.toml, .gitignore, src/ layout, logo.py (ASCII art data), tests/ | `hatch run check` passes |
-| **2** | Game engine: engine.py + unit tests | `hatch run test` covers grid, snake, letter collision, scoring |
-| **3** | Renderer: renderer.py (transparent Pygame window, logo rendering, snake drawing, HUD) | Manual: `opensnake once` opens transparent window with letters and snake |
-| **4** | Daemon: daemon.py + config.py + tests | `hatch run test` covers socket messages, lifecycle |
-| **5** | CLI: cli.py (Typer) + __main__.py | All commands return expected output |
-| **6** | opencode hook: hooks/opensnake.ts | Hook fires on thinking/idle, signals reach daemon |
-| **7** | Integration: end-to-end with simulated opencode | Full flow: hook → socket → daemon → game → window → score |
-| **8** | Polish: README, packaging, edge cases | `hatch run validate` passes, installs cleanly via pip |
+| XShape fails without X11/compositor | Medium | Game still runs visually (no desktop transparency); `_xshape_setup` returns None gracefully |
+| Multiple opencode sessions spam signals | Low | Daemon singleton via PID file; plugin `running` flag debounces duplicate busy events |
+| Orphan daemon on crash | Low | Auto-kill game after 60s no input; persist daemon for 5min idle then exit |
+| Headless/no display | Low | Detect `$DISPLAY`/`$WAYLAND_DISPLAY`, Pygame init fails gracefully |
+| Wayland without XWayland | Low | No transparency fallback needed; game runs in windowed mode |
+| Plugin daemon_cmd stale after reinstall | Low | `opensnake install` rewrites config with fresh path |
 
 ## Author
 
-For pyproject.toml: `{ name = "Hugo Batista <code at hugobatista.com>" }` — confirm before writing.
+Hugo Batista <code at hugobatista.com>
