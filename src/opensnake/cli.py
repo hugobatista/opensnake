@@ -1,4 +1,5 @@
 import shutil
+import sys
 from pathlib import Path
 
 import typer
@@ -81,6 +82,12 @@ def install() -> None:
         typer.echo("plugin file not found, skipping", err=True)
         raise typer.Exit(1)
     shutil.copy2(str(src), str(PLUGIN_FILE))
+
+    cfg = load_config()
+    cmd = f"{sys.executable} -m opensnake"
+    cfg.daemon_cmd = cmd
+    save_config(cfg)
+
     typer.echo(f"installed plugin to {PLUGIN_FILE}")
 
 

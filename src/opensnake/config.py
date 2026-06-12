@@ -49,6 +49,7 @@ class GameConfig:
     gray_map: dict[str, list[int]] = field(
         default_factory=lambda: dict(_DEFAULT_GRAY_MAP)
     )
+    daemon_cmd: str = "opensnake"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +60,7 @@ class GameConfig:
             "initial_letters": self.initial_letters,
             "spawn_interval_ms": self.spawn_interval_ms,
             "gray_map": dict(self.gray_map),
+            "daemon_cmd": self.daemon_cmd,
         }
 
 
@@ -83,6 +85,8 @@ def load_config() -> GameConfig:
                 for k, v in data["gray_map"].items():
                     if isinstance(v, list) and len(v) == 2:
                         cfg.gray_map[str(k)] = [int(v[0]), int(v[1])]
+            if isinstance(data.get("daemon_cmd"), str):
+                cfg.daemon_cmd = data["daemon_cmd"]
         except Exception:
             pass
     return cfg
