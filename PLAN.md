@@ -1,52 +1,49 @@
-# snake-eater 🐍🎮
+# opensnake 🐍
 
-Desktop snake game that eats your screen while an AI coding agent is processing.
+Desktop snake game that shows a transparent overlay while opencode is processing. The snake eats OPENCODE letters rendered in ASCII block art, scoring points for each letter collected.
 
 ## Core mechanic
 
 ```
-Agent starts "thinking"
-  → opencode plugin sends "start" via Unix socket
-  → snake-eater daemon opens Pygame window (NOFRAME, always-on-top)
-  → Screenshot captured (one shot at game start)
-  → Snake moves, marking 16×16px grid cells as eaten
-  → Eaten cells show as dark "void"
-  → Untouched areas show original screenshot
+opencode starts "thinking"
+  → plugin sends "start" via Unix socket
+  → opensnake daemon opens transparent Pygame window (NOFRAME, always-on-top, SRCALPHA)
+  → Snake moves on a grid. OPENCODE letters are placed as collectible targets
+  → Snake eats a letter → letter disappears → score += 100
+  → Desktop is visible through transparent areas
 
-Agent goes idle
-  → opencode plugin sends "stop" via Unix socket
-  → Window closes, score displayed
+opencode goes idle
+  → plugin sends "stop" via Unix socket
+  → Scoreboard overlay shown for 5s → window closes
 
-Score = % of screen pixels eaten
+ESC key at any time → game over → score shown → window closes
 ```
 
-No OCR, no character detection, no terminal dependency. Works with any app on screen.
+Score = points from letters eaten. Max score = 800 (8 letters × 100).
 
 ## Architecture
 
 ```
-opencode plugin ── Unix socket ──→ snake-eater daemon ──→ Pygame window
-  (TypeScript)     $XDG_RUNTIME_DIR/   (Python/asyncio)   (NOFRAME, ontop)
-                                      │
-                                  Screenshot capture
-                                  (gnome-screenshot → grim → spectacle → portal)
+opencode plugin ── Unix socket ──→ opensnake daemon ──→ Pygame window
+  (TypeScript)     $XDG_RUNTIME_DIR/   (Python/asyncio)   (NOFRAME, ontop, SRCALPHA)
 ```
+
+No screenshot capture. No external screenshot tools. No D-Bus.
 
 ### Components
 
 | Component | Language | Role |
 |---|---|---|
-| `opencode plugin` | TypeScript (~80 lines) | Hooks `session.status`/`session.idle`, sends `start`/`stop` to socket; template at `plugins/opencode-plugin.ts` |
+| `opencode plugin` | TypeScript (~40 lines) | Hooks `session.status`/`session.idle`, sends `start`/`stop` to socket |
 | `daemon.py` | Python/asyncio | Unix socket listener, manages game lifecycle |
-| `game/engine.py` | Python | Snake grid (16×16px cells), mask (bool[][]), collision, scoring |
-| `game/renderer.py` | Python | Pygame: blits screenshot bg, applies mask, draws snake + HUD |
-| `screenshot.py` | Python | Captures full screen via fallback chain |
-| `cli.py` | Python (Typer) | Commands: install, daemon, once, status |
+| `game/engine.py` | Python | Snake grid, letter placement, collision, scoring |
+| `game/renderer.py` | Python | Pygame: transparent surface, draws logo letters, snake, HUD |
+| `cli.py` | Python (Typer) | Commands: daemon, once, status |
 | `config.py` | Python | XDG paths, settings |
 
 ### IPC protocol
 
-Unix socket at `$XDG_RUNTIME_DIR/snake-eater.sock`
+Unix socket at `$XDG_RUNTIME_DIR/opensnake.sock`
 
 ```json
 → {"action": "start"}   → daemon opens game window
@@ -59,31 +56,35 @@ Unix socket at `$XDG_RUNTIME_DIR/snake-eater.sock`
 ← {"status": "ok"}
 ```
 
+### opencode plugin hook
+
+The plugin intercepts `session.status` and `session.idle` events. When the agent starts thinking (status transitions to `thinking`), it sends `start`. When the agent goes idle or completes, it sends `stop`. Plugin file lives at `~/.config/opencode/hooks/opensnake.ts` (opencode-plugin hook, not a full plugin).
+
 ## CLI
 
 ```
-snake-eater install opencode      → writes ~/.config/opencode/plugins/snake-game.ts
-snake-eater uninstall opencode     → removes plugin file
-snake-eater daemon                 → starts background socket listener
-snake-eater once                   → launches game immediately (for testing)
-snake-eater status                 → check if daemon is running
+opensnake daemon    → starts background socket listener
+opensnake once      → launches game immediately (for testing, no daemon needed)
+opensnake status    → check if daemon is running
+opensnake install   → installs the opencode hook file
+opensnake uninstall → removes the hook file
 ```
 
 ## Project structure
 
 ```
-~/code/projects/snake-eater/
+~/code/projects/opensnake/
 ├── pyproject.toml
 ├── README.md
 ├── PLAN.md
 ├── src/
-│   └── snake_eater/
+│   └── opensnake/
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── cli.py
 │       ├── config.py
 │       ├── daemon.py
-│       ├── screenshot.py
+│       ├── logo.py         # OPENCODE ASCII art (matching opencode's logo.ts)
 │       └── game/
 │           ├── __init__.py
 │           ├── engine.py
@@ -91,56 +92,96 @@ snake-eater status                 → check if daemon is running
 ├── tests/
 │   ├── __init__.py
 │   ├── test_engine.py
-│   ├── test_config.py
-│   └── test_screenshot.py
-└── plugins/
-    └── opencode-plugin.ts   # Template for opencode plugin (shipped with package)
+│   └── test_config.py
+└── hooks/
+    └── opensnake.ts        # opencode hook (shipped with package)
 ```
+
+## OPENCODE logo
+
+Rendered using the same block characters as opencode's own TUI (`packages/tui/src/logo.ts`):
+
+```
+                    ▄     
+█▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+█__█ █__█ █^^^ █__█ █___ █__█ █__█ █^^^
+▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀~~▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+```
+
+Characters used: `█` (U+2588), `▀` (U+2580), `▄` (U+2584), `_`, `^`, `~`, ` `, `,`.
+
+Each individual letter (O, P, E, N, C, O, D, E) is a separate collectible item. Letters are placed at fixed positions on the grid, or scattered randomly each game. A letter is collected when the snake head occupies any cell of that letter's bounding box.
+
+After all 8 letters are eaten, a new set of letters respawns at new positions.
 
 ## Game engine design
 
 | Concept | Detail |
 |---|---|
-| **Grid** | Window divided into `CELL`-sized squares (default 16×16 px) |
-| **Mask** | `bool[][]` — `True` = eaten (void), `False` = screenshot visible |
+| **Window** | Fullscreen transparent overlay with `pygame.SRCALPHA`, `NOFRAME`, always-on-top |
+| **Background** | Fully transparent — desktop visible through the window |
+| **Grid** | Window divided into `CELL`-sized squares (default 32×32 px) |
 | **Snake** | Classic grid-based snake. Head moves 1 cell per tick. |
-| **Eating** | Snake head enters a new cell → marks it eaten → `score += 1` |
-| **Collision** | Wall or self → game over (snake shrinks, score frozen) |
-| **End** | Session goes idle → show score overlay, close after 5s |
-| **Timeout** | No "stop" received after 60s → auto-close (safety for orphan sessions) |
+| **Letters** | Each OPENCODE letter occupies a bounding box (e.g., 4×4 cells per letter at a given scale). Letters are opaque blocks drawn on the transparent surface. |
+| **Eating** | Snake head overlaps a letter's bounding box → letter removed → `score += 100` → snake grows by 3 cells |
+| **Collision** | Wall or self → game over |
+| **Controls** | Arrow keys to steer. ESC to exit immediately. |
+| **End** | "stop" received → show scoreboard overlay for 5s → close. ESC → same. |
+| **Timeout** | No "stop" after 60s → auto-close (safety for orphan sessions) |
 
 ### Renderer per-frame logic
 
 ```
-1. Blit screenshot to screen
-2. Iterate mask grid: for each eaten cell, draw dark void pixel
-3. Draw snake (head = bright green #00ff66, body = gradient green)
-4. Draw HUD: score "% eaten", timer, "AI working..." / "DONE"
+1. Fill surface with transparent color (0,0,0,0)
+2. Draw remaining OPENCODE letters (opaque white/colored blocks)
+3. Draw snake (head = #00ff66, body = gradient green)
+4. Draw HUD: "SCORE: N", "A-Z: OPENCODE letters remaining"
+5. Flip display
 ```
 
-## Screenshot fallback chain
+## Letter rendering
+
+Each letter is rendered as a bitmap using the same block-character pattern as the opencode logo. Each character in the ASCII art maps to a small block of pixels on screen (e.g., each char cell = 8×8 px). The overall logo at 4 lines × ~35 chars per line fits in a ~280×32 px area at 8px/char. We scale this up with a `CHAR_SIZE` constant.
+
+Letters can be:
+- **Fixed layout**: placed in predictable positions (e.g., scattered across the play field)
+- **Random layout**: each game randomizes positions (avoiding overlap)
+
+## Transparent overlay implementation
 
 ```python
-def capture() -> str:
-    # Returns path to captured PNG
-    # Try in order:
-    1. gnome-screenshot -f /tmp/snake-eater/capture.png     # GNOME
-    2. grim /tmp/snake-eater/capture.png                     # wlroots
-    3. spectacle --background --output ...                    # KDE
-    4. xdg-desktop-portal D-Bus API                           # universal fallback
+import pygame
+
+pygame.display.init()
+# Set window to transparent
+pygame.display.set_mode((width, height), pygame.NOFRAME)
+hwnd = pygame.display.get_wm_info()["window"]
+# Platform-specific transparency:
+# Linux (X11): _NET_WM_WINDOW_OPACITY or compositor transparency
+# macOS: NSWindow setOpaque:NO / setAlphaValue:
+# Fallback: colorkey transparency on the surface
 ```
+
+If native window transparency proves unreliable across platforms, use colorkey transparency:
+- Set the window background to a specific colorkey (e.g., `#000001`)
+- Draw everything else normally
+- The colorkey makes unused areas completely transparent
+
+## Scoreboard
+
+- **During game**: top-right HUD showing current score (e.g., "SCORE: 300")
+- **Game over**: centered overlay with final score, total letters eaten, "GAME OVER — Press ESC to close"
+- **Session end**: same scoreboard auto-closes after 5s
 
 ## Dependencies
 
 ```toml
 [project]
+name = "opensnake"
 dependencies = [
     "pygame>=2.6,<3.0",
     "typer>=0.12,<1.0",
-    "dbus-next>=0.2.3,<1.0",
 ]
-# Screenshot tools called via subprocess:
-#   gnome-screenshot, grim, spectacle, or dbus-next for portal
 
 [tool.hatch.envs.default]
 dependencies = [
@@ -149,41 +190,36 @@ dependencies = [
 ]
 ```
 
+## Platform-specific transparency
+
+| Platform | Method |
+|---|---|
+| **Linux (X11)** | Set `_NET_WM_WINDOW_OPACITY` atom via `xprop` or set window colorkey via Pygame |
+| **Linux (Wayland)** | Layer shell protocol (zwlr_layer_surface_v1) or colorkey fallback; `SDL_VIDEO_DRIVER=wayland` |
+| **macOS** | Pygame window with colorkey transparency (most reliable cross-platform approach) |
+| **Fallback** | Colorkey-based transparency works on all platforms via Pygame's `set_colorkey` |
+
 ## Risks and mitigations
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Wayland screenshot shows permission dialog | Medium | Document one-time dialog; cache permission |
-| Always-on-top fails on GNOME mutter | Medium | `wmctrl` best-effort; document alt-tab as fallback |
-| Multiple opencode sessions spam signals | Low | Daemon singleton via PID file; idempotent start/stop |
+| Transparent overlay fails on some compositors | Medium | Colorkey fallback; document known-working setups |
+| Multiple opencode sessions send conflicting signals | Low | Daemon singleton via PID file; idempotent start/stop |
 | Orphan daemon on crash | Low | Auto-close after 60s no input; 5min idle exit |
-| HiDPI scaling mismatch | Low | Downscale screenshot to window size |
 | Headless/no display | Low | Detect `$DISPLAY`/`$WAYLAND_DISPLAY`, exit gracefully |
-
-## Extensibility (future)
-
-Other agents just need to send JSON to the Unix socket:
-
-```bash
-# Claude Code adapter
-echo '{"action":"start"}' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/snake-eater.sock
-claude "$@"
-echo '{"action":"stop"}' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/snake-eater.sock
-```
-
-`snake-eater install claude-code` would create this wrapper.
+| Wayland layer-shell not available | Low | Fall back to colorkey transparency |
 
 ## Implementation phases
 
 | Phase | What | Verification |
 |---|---|---|
-| **1** | Scaffold: pyproject.toml, .gitignore, src/ layout, tests/ | `hatch run check` passes |
-| **2** | Game engine: engine.py + unit tests | `hatch run test` covers grid, mask, snake, collision, scoring |
-| **3** | Screenshot + Renderer: screenshot.py (fallback chain) + renderer.py (pygame window) | Manual: `snake-eater once` opens window with live screenshot |
+| **1** | Scaffold: pyproject.toml, .gitignore, src/ layout, logo.py (ASCII art data), tests/ | `hatch run check` passes |
+| **2** | Game engine: engine.py + unit tests | `hatch run test` covers grid, snake, letter collision, scoring |
+| **3** | Renderer: renderer.py (transparent Pygame window, logo rendering, snake drawing, HUD) | Manual: `opensnake once` opens transparent window with letters and snake |
 | **4** | Daemon: daemon.py + config.py + tests | `hatch run test` covers socket messages, lifecycle |
 | **5** | CLI: cli.py (Typer) + __main__.py | All commands return expected output |
-| **6** | opencode plugin: opencode-plugin.ts | Plugin appears in opencode, sends signals on thinking/idle |
-| **7** | Integration: end-to-end with simulated opencode | Full flow: plugin → socket → daemon → game → window → score |
+| **6** | opencode hook: hooks/opensnake.ts | Hook fires on thinking/idle, signals reach daemon |
+| **7** | Integration: end-to-end with simulated opencode | Full flow: hook → socket → daemon → game → window → score |
 | **8** | Polish: README, packaging, edge cases | `hatch run validate` passes, installs cleanly via pip |
 
 ## Author
