@@ -3,6 +3,7 @@ name = "opensnake"
 version = "0.1.0"
 description = "Desktop snake game that plays on a transparent overlay while opencode is processing"
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Hugo Batista <code at hugobatista.com>" }
 ]
