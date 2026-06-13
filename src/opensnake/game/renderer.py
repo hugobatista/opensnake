@@ -353,10 +353,7 @@ class Renderer:
                     running = False
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
-                        if self.engine.state == GameState.DEAD:
-                            running = False
-                        else:
-                            self.engine.state = GameState.DEAD
+                        running = False
                     elif (
                         event.key in _DIR_MAP
                         and self.engine.state == GameState.PLAYING
