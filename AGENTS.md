@@ -19,15 +19,15 @@ Socket: `$XDG_RUNTIME_DIR/opensnake.sock` (falls back to `TMPDIR`, then `/tmp`).
 ## Commands
 
 ```bash
-# dev — use hatch scripts (defined in pyproject.toml under [tool.hatch.envs.default.scripts])
-hatch run lint          # ruff check --fix
-hatch run format        # ruff format
-hatch run lint-check    # ruff check (read-only)
-hatch run format-check  # ruff format --check
-hatch run test          # pytest
-hatch run typecheck     # mypy (src only, strict)
-hatch run validate      # lint -> format -> test -> typecheck
-hatch run check         # lint-check -> format-check -> test -> typecheck
+# all hatch commands go through uv (no system hatch)
+uv run hatch run lint          # ruff check --fix
+uv run hatch run format        # ruff format
+uv run hatch run lint-check    # ruff check (read-only)
+uv run hatch run format-check  # ruff format --check
+uv run hatch run test          # pytest
+uv run hatch run typecheck     # mypy (src only, strict)
+uv run hatch run validate      # lint -> format -> test -> typecheck
+uv run hatch run check         # lint-check -> format-check -> test -> typecheck
 
 # CI runs: uv sync --frozen --no-dev --group lint then uv run --no-sync <tool>
 # same for --group test
