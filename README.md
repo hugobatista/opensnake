@@ -9,6 +9,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Renovate](https://img.shields.io/badge/renovate-enabled-brightgreen?logo=renovatebot)](https://docs.renovatebot.com)
 
+
+
+![Demo](docs/demo1.gif)
+
 Agentic coding is magical. You describe what you want and the model explores, reasons, and returns with a solution that makes you wonder why you even have a keyboard.
 
 Then the status bar says **Thinking...** and time grinds to a halt.
