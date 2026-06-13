@@ -8,7 +8,7 @@ import pygame
 
 from opensnake.config import GameConfig, load_config
 from opensnake.game.engine import Direction, Engine, GameState
-from opensnake.logo import INK, Logo
+from opensnake.logo import _BLOCK, _LOWER, _UPPER, Logo
 
 
 class Key(StrEnum):
@@ -251,16 +251,26 @@ class Renderer:
         except Exception:
             return pygame.font.Font(None, size)
 
+    def _cell_rect(
+        self, bx: int, by: int, ch: str
+    ) -> tuple[int, int, int, int]:
+        half = self._cs // 2
+        if ch in _UPPER:
+            return (bx, by, self._cs, half)
+        if ch in _LOWER:
+            return (bx, by + half, self._cs, self._cs - half)
+        return (bx, by, self._cs, self._cs)
+
     def _ink_rects(self, gx: int, gy: int, pattern: list[str]) -> _RectList:
         rects: _RectList = []
         bx = gx * self._cs
         by = gy * self._cs
         for ly, line in enumerate(pattern):
             for lx, ch in enumerate(line):
-                if ch in INK:
+                if ch in _BLOCK:
                     rx = bx + lx * self._cs
                     ry = by + ly * self._cs
-                    rects.append((rx, ry, self._cs, self._cs))
+                    rects.append(self._cell_rect(rx, ry, ch))
         return rects
 
     def _letter_color(self, name: str) -> tuple[int, int]:
@@ -276,10 +286,10 @@ class Renderer:
         fill, border = self._letter_color(letter_name)
         for ly, line in enumerate(pattern):
             for lx, ch in enumerate(line):
-                if ch in INK:
+                if ch in _BLOCK:
                     rx = bx + lx * self._cs
                     ry = by + ly * self._cs
-                    rect = (rx, ry, self._cs, self._cs)
+                    rect = self._cell_rect(rx, ry, ch)
                     pygame.draw.rect(self._draw_surf, (fill, fill, fill), rect)
                     bdr = (border, border, border)
                     pygame.draw.rect(self._draw_surf, bdr, rect, 1)
