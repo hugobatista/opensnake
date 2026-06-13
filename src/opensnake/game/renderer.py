@@ -1,6 +1,7 @@
 import ctypes
 import os
 import platform
+import signal
 from enum import StrEnum, auto
 from typing import Any
 
@@ -204,6 +205,13 @@ def _macos_setup() -> bool:
         return False
 
 
+# ── Signal handling ──────────────────────────────────────────────────
+
+
+def _signal_handler(signum: int, frame: Any) -> None:
+    pygame.event.post(pygame.event.Event(pygame.QUIT))
+
+
 # ── Renderer ─────────────────────────────────────────────────────────
 
 
@@ -224,6 +232,7 @@ class Renderer:
 
         pygame.display.set_caption("opensnake")
         pygame.event.set_allowed([pygame.KEYDOWN, pygame.QUIT])
+        signal.signal(signal.SIGTERM, _signal_handler)
         self.clock = pygame.time.Clock()
 
         self._xshape = _xshape_setup(1.0)
