@@ -46,7 +46,7 @@ pip install opensnake
 # or for the cool kids
 uv tool install opensnake
 # or from source if you enjoy build scripts
-git clone https://github.com/hugobatista/opensnake
+git clone https://go.hugobatista.com/gh/opensnake
 cd opensnake
 uv sync
 ```
